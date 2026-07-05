@@ -146,6 +146,16 @@ export default function Home() {
     alert('물품이 승인되어 리스트에 공개됩니다.');
   };
 
+  // 관리자 전용 물품 삭제 기능
+  const handleDeleteItem = (id: number) => {
+    if (confirm('이 분실물 항목을 정말 완전히 삭제하시겠습니까?')) {
+      setItems(items.filter(item => item.id !== id));
+      setSelectedItem(null);
+      setViewMode('list');
+      alert('삭제되었습니다.');
+    }
+  };
+
   const filteredItems = items.filter(item => {
     if (filter === '승인대기') return !item.isApproved;
     if (!item.isApproved) return false;
@@ -155,7 +165,7 @@ export default function Home() {
 
   const activeMapItems = items.filter(item => item.isApproved && item.status === '보관중');
 
-  // 에러가 났던 라인 분리: 관리자 여부에 따른 필터 탭 항목 지정
+  // 관리자 여부에 따른 필터 탭 항목 지정
   const filterOptions: ('전체' | '보관중' | '찾음' | '승인대기')[] = isAdmin 
     ? ['전체', '보관중', '찾음', '승인대기'] 
     : ['전체', '보관중', '찾음'];
@@ -279,21 +289,31 @@ export default function Home() {
                           </div>
                           <h3 className={`font-bold text-sm ${isFound ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{item.title}</h3>
                           <p className="text-xs text-slate-500">📍 발견 장소: <span className="font-semibold text-slate-700">{item.locationText}</span></p>
+                          {isAdmin && (
+                            <p className="text-[11px] text-red-500 font-medium">🔑 제보자 학번: {item.studentId}</p>
+                          )}
                         </div>
                       </div>
                       
-                      <div className="shrink-0 w-full md:w-auto flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                        {isAdmin && !item.isApproved ? (
+                      <div className="shrink-0 w-full md:w-auto flex justify-end gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                        {isAdmin && !item.isApproved && (
                           <button onClick={() => handleApproveItem(item.id)} className="bg-slate-950 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm">승인하기</button>
-                        ) : (
-                          item.isApproved && (
-                            <button
-                              onClick={() => { if (isFound) return; setSelectedItem(item); setResolveModalOpen(true); }}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${isFound ? 'bg-slate-200/60 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
-                            >
-                              {item.status === '보관중' ? '보관중 (해결하기)' : '✓ 수령 완료'}
-                            </button>
-                          )
+                        )}
+                        
+                        {item.isApproved && (
+                          <button
+                            onClick={() => { if (isFound) return; setSelectedItem(item); setResolveModalOpen(true); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${isFound ? 'bg-slate-200/60 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+                          >
+                            {item.status === '보관중' ? '보관중 (해결하기)' : '✓ 수령 완료'}
+                          </button>
+                        )}
+
+                        {/* 리스트 내 관리자 전용 삭제 버튼 */}
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteItem(item.id)} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-lg transition">
+                            삭제
+                          </button>
                         )}
                       </div>
                     </div>
@@ -341,6 +361,13 @@ export default function Home() {
                 </p>
               </div>
 
+              {isAdmin && (
+                <div className="bg-red-50/50 border border-red-100 p-4 rounded-xl space-y-1">
+                  <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider">🔑 [관리자 정보] 제보자 학번</h4>
+                  <p className="text-sm font-bold text-slate-800">{selectedItem.studentId}</p>
+                </div>
+              )}
+
               {/* 상세 페이지 내 지도 */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">🗺️ 지도로 위치 확인</h4>
@@ -358,13 +385,19 @@ export default function Home() {
               </div>
             </div>
 
-            {selectedItem.status === '보관중' && (
-              <div className="pt-4 border-t border-slate-100 flex justify-end">
+            <div className="pt-4 border-t border-slate-100 flex justify-end gap-2">
+              {/* 상세 페이지 내 관리자 전용 삭제 버튼 */}
+              {isAdmin && (
+                <button onClick={() => handleDeleteItem(selectedItem.id)} className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm">
+                  물품 삭제하기
+                </button>
+              )}
+              {selectedItem.status === '보관중' && (
                 <button onClick={() => setResolveModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm">
                   본인 물품 수령 및 해결하기
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
