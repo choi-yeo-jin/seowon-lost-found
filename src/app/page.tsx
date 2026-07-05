@@ -155,6 +155,11 @@ export default function Home() {
 
   const activeMapItems = items.filter(item => item.isApproved && item.status === '보관중');
 
+  // 에러가 났던 라인 분리: 관리자 여부에 따른 필터 탭 항목 지정
+  const filterOptions: ('전체' | '보관중' | '찾음' | '승인대기')[] = isAdmin 
+    ? ['전체', '보관중', '찾음', '승인대기'] 
+    : ['전체', '보관중', '찾음'];
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans antialiased">
       {/* 헤더 */}
@@ -186,7 +191,7 @@ export default function Home() {
             {/* 상단 필터 및 버튼 바 */}
             <div className="flex justify-between items-center gap-4 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
               <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                {((isAdmin ? ['전체', '보관중', '찾음', '승인대기'] : ['전체', '보관중', '찾음']) as const).map((t) => (
+                {filterOptions.map((t) => (
                   <button key={t} onClick={() => setFilter(t)} className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${filter === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
                     {t} {t === '승인대기' && `(${items.filter(i => !i.isApproved).length})`}
                   </button>
