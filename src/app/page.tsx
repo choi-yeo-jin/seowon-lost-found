@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface LostItem {
   id: number;
@@ -19,6 +19,10 @@ interface LostItem {
 
 export default function Home() {
   const [items, setItems] = useState<LostItem[]>([]);
+  const [schoolMapImage, setSchoolMapImage] = useState<string | null>(null);
+  
+  // 브라우저 로컬스토리지 로딩 상태 체크 (Next.js Hydration 오류 방지용)
+  const [isLoaded, setIsLoaded] = useState(false);
 
   // 화면 전환 상태 관리 ('list' = 첫 화면, 'create' = 등록 폼, 'detail' = 상세 보기)
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
@@ -37,8 +41,6 @@ export default function Home() {
   const [clickX, setClickX] = useState<number>(50);
   const [clickY, setClickY] = useState<number>(50);
 
-  // 관리자가 등록하는 학교 지도 이미지
-  const [schoolMapImage, setSchoolMapImage] = useState<string | null>(null);
   const registerMapRef = useRef<HTMLDivElement>(null);
 
   // 필터 및 모달 상태
@@ -50,6 +52,43 @@ export default function Home() {
   // 학번 인증 모달 상태
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [authStudentId, setAuthStudentId] = useState('');
+
+  // 1. 컴포넌트가 처음 켜질 때 브라우저 창고(LocalStorage)에서 데이터 가져오기
+  useEffect(() => {
+    const savedItems = localStorage.getItem('seowon-lost-items');
+    if (savedItems) {
+      try {
+        setItems(JSON.parse(savedItems));
+      } catch (e) {
+        console.error('데이터를 불러오는데 실패했습니다.', e);
+      }
+    }
+
+    const savedMap = localStorage.getItem('seowon-school-map');
+    if (savedMap) {
+      setSchoolMapImage(savedMap);
+    }
+
+    setIsLoaded(true); // 데이터를 완전히 불러왔음을 표시
+  }, []);
+
+  // 2. 분실물 리스트가 변경될 때마다 브라우저 창고에 저장하기
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('seowon-lost-items', JSON.stringify(items));
+    }
+  }, [items, isLoaded]);
+
+  // 3. 지도 이미지가 변경될 때마다 브라우저 창고에 저장하기
+  useEffect(() => {
+    if (isLoaded) {
+      if (schoolMapImage) {
+        localStorage.setItem('seowon-school-map', schoolMapImage);
+      } else {
+        localStorage.removeItem('seowon-school-map');
+      }
+    }
+  }, [schoolMapImage, isLoaded]);
 
   // 이미지 업로드 핸들러
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'map') => {
@@ -156,14 +195,19 @@ export default function Home() {
     }
   };
 
-  const filteredItems = items.filter(item => {
-    if (filter === '승인대기') return !item.isApproved;
-    if (!item.isApproved) return false;
-    if (filter === '전체') return true;
-    return item.status === filter;
-  });
+  // 창고 로딩이 완료되기 전엔 빈 데이터로, 로딩 완료 후에 필터링 적용
+  const filteredItems = isLoaded 
+    ? items.filter(item => {
+        if (filter === '승인대기') return !item.isApproved;
+        if (!item.isApproved) return false;
+        if (filter === '전체') return true;
+        return item.status === filter;
+      })
+    : [];
 
-  const activeMapItems = items.filter(item => item.isApproved && item.status === '보관중');
+  const activeMapItems = isLoaded 
+    ? items.filter(item => item.isApproved && item.status === '보관중')
+    : [];
 
   // 관리자 여부에 따른 필터 탭 항목 지정
   const filterOptions: ('전체' | '보관중' | '찾음' | '승인대기')[] = isAdmin 
@@ -259,7 +303,11 @@ export default function Home() {
 
             {/* 분실물 리스트 */}
             <div className="space-y-3">
-              {filteredItems.length === 0 ? (
+              {!isLoaded ? (
+                <div className="text-center py-16 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs shadow-sm">
+                  불러오는 중...
+                </div>
+              ) : filteredItems.length === 0 ? (
                 <div className="text-center py-16 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs shadow-sm">
                   등록된 분실물이 없습니다.
                 </div>
