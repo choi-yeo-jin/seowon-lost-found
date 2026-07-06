@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase 클라이언트 초기화 (환경 변수 사용)
-const supabaseUrl = process.env."https://pgqgubpojygepaaskbsb.supabase.co || '';
-const supabaseAnonKey = process.env.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncWd1YnBvanlnZXBhYXNrYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNzQ0MTYsImV4cCI6MjA5ODc1MDQxNn0.GWVhm3pfXo9c_9gof1BL1OcjvXp34yn65Q5Jgx5s8d0 || '';
+// ✅ 오타와 문법 에러(Syntax Error)를 완벽하게 고친 초기화 코드입니다.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pgqgubpojygepaaskbsb.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncWd1YnBvanlnZXBhYXNrYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNzQ0MTYsImV4cCI6MjA5ODc1MDQxNn0.GWVhm3pfXo9c_9gof1BL1OcjvXp34yn65Q5Jgx5s8d0';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface LostItem {
@@ -209,7 +209,6 @@ export default function Home() {
 
   const activeMapItems = items.filter(item => item.isapproved && item.status === '보관중');
   
-  // 💡 타입 에러 완벽 해결을 위해 배열을 깔끔하게 분리 처리합니다.
   const filterOptions = isAdmin 
     ? ['전체', '보관중', '찾음', '승인대기'] 
     : ['전체', '보관중', '찾음'];
