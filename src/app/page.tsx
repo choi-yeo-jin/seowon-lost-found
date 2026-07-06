@@ -4,8 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // ✅ 오타와 문법 에러(Syntax Error)를 완벽하게 고친 초기화 코드입니다.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pgqgubpojygepaaskbsb.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncWd1YnBvanlnZXBhYXNrYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNzQ0MTYsImV4cCI6MjA5ODc1MDQxNn0.GWVhm3pfXo9c_9gof1BL1OcjvXp34yn65Q5Jgx5s8d0';
+// 7번째 줄부터 있던 기존 3줄을 지우고 아래 내용으로 교체합니다.
+// process.env를 거치지 않고 실제 주소와 키를 다이렉트로 매칭해 빌드 에러를 원천 차단합니다.
+const supabaseUrl = 'https://pgqgubpojygepaaskbsb.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncWd1YnBvanlnZXBhYXNrYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNzQ0MTYsImV4cCI6MjA5ODc1MDQxNn0.GWVhm3pfXo9c_9gof1BL1OcjvXp34yn65Q5Jgx5s8d0';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface LostItem {
