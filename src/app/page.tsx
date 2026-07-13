@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = "https://pgqgubpojygepaaskbsb.supabase.co";
-// 💡 이 부분에 본인의 실제 anon 키를 넣으시면 됩니다.
-const supabaseAnonKey = "sb_publishable_InbYU657lLA1BNl4eRL0Uw_WQ7v_ihA";
+// Supabase 클라이언트 초기화 (환경 변수 사용)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface LostItem {
@@ -26,215 +26,461 @@ interface LostItem {
 export default function Home() {
   const [items, setItems] = useState<LostItem[]>([]);
   const [schoolMapImage, setSchoolMapImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 화면 전환 상태
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
   const [selectedItem, setSelectedItem] = useState<LostItem | null>(null);
+
+  // 등록 폼 상태
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [category, setCategory] = useState('생활용품');
+  const [itemImage, setItemImage] = useState<string | null>(null);
   const [locationText, setLocationText] = useState(''); 
+  
   const [clickX, setClickX] = useState<number>(50);
   const [clickY, setClickY] = useState<number>(50);
+
   const registerMapRef = useRef<HTMLDivElement>(null);
-  const [filter, setFilter] = useState<'전체' | '보관중' | '찾음'>('전체');
+
+  // 필터 및 모달 상태
+  const [filter, setFilter] = useState<'전체' | '보관중' | '찾음' | '승인대기'>('전체');
   const [isAdmin, setIsAdmin] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [showAdminModal, setShowAdminModal] = useState(false);
 
-  useEffect(() => { fetchData(); }, []);
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
+  const [authStudentId, setAuthStudentId] = useState('');
 
-  // 1. 데이터 불러오기
+  // 🌍 1. 사이트 켜지면 전용 DB에서 데이터 실시간으로 긁어오기
+  useEffect(() => {
+    fetchData();
+  }, []);
+
   const fetchData = async () => {
-    const { data: lostData } = await supabase.from('lost_items').select('*').order('id', { ascending: false });
-    if (lostData) setItems(lostData as LostItem[]);
-    const { data: mapData } = await supabase.from('school_map').select('map_image').eq('id', 1).single();
-    if (mapData?.map_image) setSchoolMapImage(mapData.map_image);
+    setIsLoading(true);
+    try {
+      const { data: lostData, error: lostError } = await supabase
+        .from('lost_items')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (!lostError && lostData) {
+        setItems(lostData as LostItem[]);
+        // 상세 보기 중인 아이템이 있다면 최신 데이터로 동기화
+        if (selectedItem) {
+          const current = lostData.find(i => i.id === selectedItem.id);
+          if (current) setSelectedItem(current as LostItem);
+        }
+      }
+
+      const { data: mapData } = await supabase
+        .from('school_map')
+        .select('map_image')
+        .eq('id', 1)
+        .single();
+
+      if (mapData?.map_image) {
+        setSchoolMapImage(mapData.map_image);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsLoading(false);
   };
 
-  // 2. 분실물 등록하기 (실제 Supabase 연동)
-  const handleCreate = async () => {
-    if (!title.trim() || !locationText.trim()) {
-      alert("물품명과 위치를 입력해주세요.");
-      return;
+  // 이미지 업로드 (Base64 변환 후 DB 저장용)
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'item' | 'map') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        if (type === 'item') setItemImage(base64String);
+        if (type === 'map') {
+          setSchoolMapImage(base64String);
+          await supabase.from('school_map').upsert({ id: 1, map_image: base64String });
+          alert('학교 지도가 데이터베이스에 동기화되었습니다.');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRegisterMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!registerMapRef.current) return;
+    const rect = registerMapRef.current.getBoundingClientRect();
+    setClickX(((e.clientX - rect.left) / rect.width) * 100);
+    setClickY(((e.clientY - rect.top) / rect.height) * 100);
+  };
+
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === '7272') { 
+      setIsAdmin(true);
+      setShowAdminModal(false);
+      setPasswordInput('');
+    } else {
+      alert('비밀번호가 올바르지 않습니다!');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !studentId || !locationText.trim()) {
+      return alert('물품명, 학번, 발견 장소를 모두 입력해주세요!');
     }
 
     const { error } = await supabase.from('lost_items').insert([
       {
         title,
         description,
-        locationtext: locationText,
-        mapx: Math.round(clickX),
-        mapy: Math.round(clickY),
-        category,
+        image: itemImage,
+        locationtext: locationText.trim(),
+        mapx: clickX,
+        mapy: clickY,
+        studentid: studentId.trim(),
+        date: new Date().toISOString().split('T')[0],
         status: '보관중',
-        isapproved: true // 등록 시 지도에 바로 표시되도록 true 설정
+        category,
+        isapproved: false,
       }
     ]);
 
     if (error) {
-      alert("등록 실패: " + error.message);
+      alert('등록 중 에러가 발생했습니다: ' + error.message);
     } else {
-      alert("분실물이 성공적으로 등록되었습니다!");
-      setTitle('');
-      setDescription('');
-      setLocationText('');
-      setClickX(50);
-      setClickY(50);
+      alert('등록 신청되었습니다. 관리자 승인 후 목록에 표시됩니다.');
       fetchData();
+      setTitle(''); setDescription(''); setStudentId(''); setLocationText(''); setItemImage(null);
       setViewMode('list');
     }
   };
 
-  // 3. 해결하기 기능 (수령자 학번 입력받고 저장)
-  const handleResolve = async (id: number) => {
-    const inputStudentId = prompt("물품을 찾아가는 수령자의 학번을 입력해주세요 (예: 10101):");
+  // 🛠️ 변경된 해결하기(수령하기) 로직
+  const handleResolveStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem) return;
     
-    if (inputStudentId === null) return; // 취소 누른 경우
-    if (!inputStudentId.trim()) {
-      alert("학번을 입력해야 해결 처리가 가능합니다.");
+    if (!authStudentId.trim()) {
+      alert('수령자 학번을 입력해주세요.');
       return;
     }
 
+    // 일치 여부 검사 없이, 새로 입력받은 [수령자 학번]을 studentid 컬럼에 덮어씌웁니다.
     const { error } = await supabase
       .from('lost_items')
       .update({ 
-        status: '찾음', 
-        studentid: inputStudentId.trim() // studentid 컬럼에 수령자 학번 저장
+        status: '찾음',
+        studentid: authStudentId.trim() 
       })
-      .eq('id', id);
+      .eq('id', selectedItem.id);
 
-    if (error) {
-      alert("업데이트 실패: " + error.message);
-    } else {
-      alert("수령 완료 처리가 되었습니다! 🎉");
-      fetchData();
+    if (!error) {
+      alert('수령 완료 처리되었습니다! 🎉');
+      setResolveModalOpen(false);
+      setAuthStudentId('');
+      await fetchData();
       setViewMode('list');
+    } else {
+      alert('처리 중 오류가 발생했습니다: ' + error.message);
     }
   };
 
+  const handleApproveItem = async (id: number) => {
+    const { error } = await supabase
+      .from('lost_items')
+      .update({ isapproved: true })
+      .eq('id', id);
+
+    if (!error) {
+      alert('물품이 승인되어 공용 리스트에 공개됩니다.');
+      fetchData();
+    }
+  };
+
+  const handleDeleteItem = async (id: number) => {
+    if (confirm('이 분실물 항목을 정말 완전히 DB에서 삭제하시겠습니까?')) {
+      const { error } = await supabase.from('lost_items').delete().eq('id', id);
+      if (!error) {
+        alert('삭제되었습니다.');
+        setSelectedItem(null);
+        setViewMode('list');
+        fetchData();
+      }
+    }
+  };
+
+  const filteredItems = items.filter(item => {
+    if (filter === '승인대기') return !item.isapproved;
+    if (!item.isapproved) return false;
+    if (filter === '전체') return true;
+    return item.status === filter;
+  });
+
+  const activeMapItems = items.filter(item => item.isapproved && item.status === '보관중');
+  
+  const filterOptions = isAdmin 
+    ? ['전체', '보관중', '찾음', '승인대기'] 
+    : ['전체', '보관중', '찾음'];
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans p-4">
-      <header className="max-w-4xl mx-auto flex justify-between items-center py-4 border-b">
-        <div>
-          <h1 className="text-lg font-bold flex items-center gap-2">
-            서원고 분실물 센터
-            {isAdmin && <span className="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-md">관리자 모드</span>}
-          </h1>
-          <p className="text-[10px] text-slate-400">Seowon Lost & Found</p>
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans antialiased">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="cursor-pointer" onClick={() => setViewMode('list')}>
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              서원고 분실물 센터
+              {isAdmin && <span className="text-[10px] font-bold bg-amber-500 text-white px-2 py-0.5 rounded">관리자 모드</span>}
+            </h1>
+            <p className="text-[10px] text-slate-400">Seowon Lost & Found (Live)</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {isAdmin ? (
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setIsAdmin(false); setFilter('전체'); setViewMode('list'); }} className="text-xs text-slate-400 hover:text-slate-600 underline">로그아웃</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowAdminModal(true)} className="text-xs text-slate-500 hover:text-slate-800 border border-slate-200 px-2.5 py-1.5 rounded-lg bg-white shadow-sm font-medium">관리자 로그인</button>
+            )}
+          </div>
         </div>
-        {isAdmin ? (
-          <button onClick={() => setIsAdmin(false)} className="text-xs border px-3 py-1.5 rounded-lg bg-slate-100 font-bold">로그아웃</button>
-        ) : (
-          <button onClick={() => setShowAdminModal(true)} className="text-xs border px-3 py-1.5 rounded-lg bg-white">관리자 로그인</button>
-        )}
       </header>
 
-      <main className="max-w-4xl mx-auto py-6">
-        {/* 리스트 화면 */}
+      <main className="max-w-4xl mx-auto px-4 py-6">
         {viewMode === 'list' && (
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-xl border shadow-sm">
-              <h3 className="text-xs font-bold mb-3">📍 실시간 학교 분실물 위치</h3>
-              <div className="relative border rounded-xl overflow-hidden bg-slate-100">
-                {schoolMapImage && (
-                  <div className="relative w-full">
-                    <img src={schoolMapImage} className="w-full h-auto" />
-                    {items.filter(i => i.isapproved && i.status === '보관중').map(item => (
-                      <div key={item.id} className="absolute w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow-md transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${item.mapx}%`, top: `${item.mapy}%` }} />
+          <div className="space-y-5">
+            <div className="flex justify-between items-center gap-4 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+                {filterOptions.map((t) => (
+                  <button key={t} onClick={() => setFilter(t as any)} className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${filter === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                    {t} {t === '승인대기' && `(${items.filter(i => !i.isapproved).length})`}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setViewMode('create')} className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition flex items-center gap-1">
+                <span>➕</span> 분실물 등록하기
+              </button>
+            </div>
+
+            {isAdmin && (
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <h3 className="text-xs font-bold text-slate-700 mb-2">🗺️ [관리자 전용] 학교 지도 이미지 등록 (공용 동기화)</h3>
+                <input type="file" accept="image/*" onChange={(e) => handleImageChange(e, 'map')} className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+              </div>
+            )}
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
+              <div className="flex justify-between items-center">
+                <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1">🔍 실시간 학교 분실물 현황판</h3>
+                <span className="text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">보관중: {activeMapItems.length}개</span>
+              </div>
+              
+              <div className="relative border border-slate-100 rounded-xl overflow-hidden bg-slate-50 max-w-sm mx-auto">
+                {schoolMapImage ? (
+                  <div className="relative w-full h-auto">
+                    <img src={schoolMapImage} alt="학교 지도 메인" className="w-full h-auto block select-none pointer-events-none" />
+                    {activeMapItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => { setSelectedItem(item); setViewMode('detail'); }}
+                        className="absolute w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full shadow-md hover:scale-125 hover:bg-slate-950 transition-all z-10 group transform -translate-x-1/2 -translate-y-1/2"
+                        style={{ left: `${item.mapx}%`, top: `${item.mapy}%` }}
+                      >
+                        <span className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-[10px] px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+                          {item.title} ({item.locationtext})
+                        </span>
+                      </button>
                     ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-slate-400 text-xs">
+                    <p className="font-bold">🗺️ 업로드된 지도가 없습니다.</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex gap-2">
-              {['전체', '보관중', '찾음'].map(t => (
-                <button key={t} onClick={() => setFilter(t as any)} className={`px-4 py-2 text-xs font-bold rounded-lg ${filter === t ? 'bg-black text-white' : 'bg-white border'}`}>
-                  {t}
-                </button>
-              ))}
-              <button onClick={() => setViewMode('create')} className="ml-auto bg-black text-white px-4 py-2 text-xs font-bold rounded-lg">+ 등록하기</button>
-            </div>
-
-            <div className="grid gap-3">
-              {items.filter(i => filter === '전체' || i.status === filter).map(item => (
-                <div key={item.id} onClick={() => {setSelectedItem(item); setViewMode('detail');}} className="bg-white p-4 rounded-xl border shadow-sm cursor-pointer hover:border-slate-400">
-                  <div className="flex justify-between items-start">
-                    <h3 className="font-bold text-sm">{item.title}</h3>
-                    <span className={`text-[10px] px-2 py-0.5 rounded ${item.status === '보관중' ? 'bg-green-100 text-green-700' : 'bg-slate-100'}`}>{item.status}</span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-1">위치: {item.locationtext}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 등록 화면 */}
-        {viewMode === 'create' && (
-          <div className="bg-white p-6 rounded-xl border space-y-4">
-            <h2 className="font-bold">분실물 등록</h2>
-            <input className="w-full p-2 border rounded-lg text-sm" placeholder="물품명" value={title} onChange={e => setTitle(e.target.value)} />
-            <input className="w-full p-2 border rounded-lg text-sm" placeholder="위치 설명 (예: 2층 본교무실 앞)" value={locationText} onChange={e => setLocationText(e.target.value)} />
-            <input className="w-full p-2 border rounded-lg text-sm" placeholder="상세 설명 (특징 등)" value={description} onChange={e => setDescription(e.target.value)} />
-            
-            <div className="text-xs text-slate-400 font-bold">지도에서 습득 장소를 클릭해 주세요:</div>
-            <div ref={registerMapRef} onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setClickX(((e.clientX - rect.left) / rect.width) * 100);
-              setClickY(((e.clientY - rect.top) / rect.height) * 100);
-            }} className="relative cursor-crosshair border rounded-lg overflow-hidden bg-slate-50">
-              {schoolMapImage && <img src={schoolMapImage} className="w-full" />}
-              <div className="absolute w-3 h-3 bg-red-500 rounded-full border-2 border-white transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${clickX}%`, top: `${clickY}%` }} />
-            </div>
-            
-            <div className="flex gap-2">
-              <button onClick={() => setViewMode('list')} className="flex-1 py-2 border rounded-lg text-sm">취소</button>
-              <button onClick={handleCreate} className="flex-1 py-2 bg-black text-white rounded-lg text-sm font-bold">등록 신청</button>
-            </div>
-          </div>
-        )}
-
-        {/* 상세 보기 화면 (추가됨 🌟) */}
-        {viewMode === 'detail' && selectedItem && (
-          <div className="bg-white p-6 rounded-xl border shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h2 className="font-bold text-base">{selectedItem.title}</h2>
-              <span className={`text-xs px-2 py-1 rounded-full font-bold ${selectedItem.status === '보관중' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>{selectedItem.status}</span>
-            </div>
-            
-            <div className="space-y-2 text-sm">
-              <p><span className="font-bold text-slate-400 mr-2">카테고리:</span> {selectedItem.category || '일반'}</p>
-              <p><span className="font-bold text-slate-400 mr-2">습득위치:</span> {selectedItem.locationtext}</p>
-              <p><span className="font-bold text-slate-400 mr-2">상세설명:</span> {selectedItem.description || '설명이 없습니다.'}</p>
-            </div>
-
-            {/* 🔒 보안 로직: 관리자(`isAdmin`)가 로그인했을 때만 수령자 학번이 노출됨 */}
-            {isAdmin && selectedItem.status === '찾음' && (
-              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-800 text-xs font-semibold">
-                🔒 [관리자 인증 전용] 수령자 학번: {selectedItem.studentid || '기록 없음'}
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-4 border-t">
-              <button onClick={() => setViewMode('list')} className="flex-1 py-2 border rounded-lg text-sm">목록으로</button>
-              {selectedItem.status === '보관중' && (
-                <button onClick={() => handleResolve(selectedItem.id)} className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-bold">해결하기</button>
+            <div className="space-y-3">
+              {isLoading ? (
+                <div className="text-center py-16 bg-white rounded-xl text-slate-400 text-xs">서버에서 분실물 실시간 정보 동기화 중...</div>
+              ) : filteredItems.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-xl text-slate-400 text-xs">등록된 분실물이 없습니다.</div>
+              ) : (
+                filteredItems.map((item) => {
+                  const isFound = item.status === '찾음';
+                  return (
+                    <div 
+                      key={item.id} 
+                      onClick={() => { if (item.isapproved || isAdmin) { setSelectedItem(item); setViewMode('detail'); } }}
+                      className={`bg-white p-5 rounded-xl shadow-sm border flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition cursor-pointer hover:border-slate-400 ${isFound ? 'opacity-50 bg-slate-50/50 border-slate-100' : 'border-slate-200'}`}
+                    >
+                      <div className="flex gap-4 items-start">
+                        {item.image && <img src={item.image} alt="물품" className="w-16 h-16 object-cover rounded-lg shrink-0 border border-slate-200" />}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">{item.category}</span>
+                            <span className="text-[10px] text-slate-400">{item.date}</span>
+                            {!item.isapproved && <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">승인 대기</span>}
+                          </div>
+                          <h3 className={`font-bold text-sm ${isFound ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{item.title}</h3>
+                          <p className="text-xs text-slate-500">📍 위치: <span className="font-semibold text-slate-700">{item.locationtext}</span></p>
+                        </div>
+                      </div>
+                      
+                      <div className="shrink-0 w-full md:w-auto flex justify-end gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                        {isAdmin && !item.isapproved && (
+                          <button onClick={() => handleApproveItem(item.id)} className="bg-slate-950 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm">승인하기</button>
+                        )}
+                        {item.isapproved && (
+                          <button onClick={() => { if (isFound) return; setSelectedItem(item); setResolveModalOpen(true); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${isFound ? 'bg-slate-200 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200'}`}>
+                            {item.status === '보관중' ? '보관중 (해결하기)' : '✓ 수령 완료'}
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteItem(item.id)} className="bg-red-50 text-red-600 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-lg">삭제</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
         )}
+
+        {viewMode === 'detail' && selectedItem && (
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-2xl mx-auto space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 mr-2">{selectedItem.category}</span>
+                <span className="text-xs text-slate-400">{selectedItem.date} 등록</span>
+              </div>
+              <button onClick={() => { setViewMode('list'); setSelectedItem(null); }} className="text-xs text-slate-500 hover:text-slate-800 font-bold">📋 목록</button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex justify-between items-start">
+                <h2 className="text-xl font-bold">{selectedItem.title}</h2>
+                <span className={`text-xs px-2.5 py-1 rounded-md font-bold ${selectedItem.status === '보관중' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-slate-100 text-slate-500'}`}>{selectedItem.status}</span>
+              </div>
+              {selectedItem.image && <div className="w-full flex justify-center bg-slate-50 rounded-xl p-2"><img src={selectedItem.image} alt="원본" className="max-h-72 object-contain rounded-lg" /></div>}
+              <div className="bg-slate-50 p-4 rounded-xl"><p className="text-sm font-bold">📍 발견 위치: {selectedItem.locationtext}</p></div>
+              <div className="bg-slate-50 p-4 rounded-xl"><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedItem.description || "설명 없음"}</p></div>
+              
+              {/* 🔒 [보안 추가] 관리자에게만 노출되는 수령자 학번 공간 */}
+              {isAdmin && selectedItem.status === '찾음' && (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-800 text-xs font-bold shadow-sm">
+                  🔒 [관리자 인증 전용] 수령자 학번: {selectedItem.studentid || '기록 없음'}
+                </div>
+              )}
+
+              <div className="relative border border-slate-200 rounded-xl overflow-hidden max-w-sm mx-auto">
+                {schoolMapImage && (
+                  <div className="relative w-full h-auto">
+                    <img src={schoolMapImage} alt="지도" className="w-full h-auto block" />
+                    <div className="absolute w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${selectedItem.mapx}%`, top: `${selectedItem.mapy}%` }} />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="pt-4 border-t border-slate-100 flex justify-end gap-2">
+              {isAdmin && <button onClick={() => handleDeleteItem(selectedItem.id)} className="bg-red-600 text-white text-xs font-bold px-4 py-2.5 rounded-lg">물품 삭제</button>}
+              {selectedItem.status === '보관중' && <button onClick={() => setResolveModalOpen(true)} className="bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-lg">물품 수령하기</button>}
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'create' && (
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-2xl mx-auto space-y-6">
+            <h2 className="text-base font-bold text-slate-900 border-b pb-3">✍️ 분실물 제보 신청 (공용 DB 전송)</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">제보자 학번 *</label>
+                  <input type="text" placeholder="예: 10101" value={studentId} onChange={(e) => setStudentId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">카테고리</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm text-slate-700">
+                    <option value="생활용품">생활용품</option>
+                    <option value="전자기기">전자기기</option>
+                    <option value="도서">도서</option>
+                    <option value="의류">의류</option>
+                    <option value="기타">기타</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1">물품명 *</label>
+                <input type="text" placeholder="예: 무선 이어폰 케이스" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1">발견 위치 서술 *</label>
+                <input type="text" placeholder="예: 과학실 2분반 교탁 위" value={locationText} onChange={(e) => setLocationText(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1">상세 내용</label>
+                <textarea rows={3} placeholder="보관 상태를 적어주세요." value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1">사진 등록</label>
+                <input type="file" accept="image/*" onChange={(e) => handleImageChange(e, 'item')} className="w-full text-xs" />
+                {itemImage && <img src={itemImage} alt="미리보기" className="mt-2 w-24 h-24 object-cover rounded-lg" />}
+              </div>
+              <div className="space-y-2 pt-2 border-t">
+                <label className="block text-[11px] font-bold text-slate-400">🗺️ 지도상에 대략적인 핀 고정</label>
+                <div className="relative border rounded-xl overflow-hidden bg-slate-100 max-w-sm mx-auto">
+                  <div ref={registerMapRef} onClick={handleRegisterMapClick} className="relative w-full h-auto cursor-crosshair">
+                    {schoolMapImage ? (
+                      <>
+                        <img src={schoolMapImage} alt="지도선택" className="w-full h-auto block pointer-events-none" />
+                        <div className="absolute w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${clickX}%`, top: `${clickY}%` }} />
+                      </>
+                    ) : (
+                      <div className="text-center py-16 text-slate-400 text-xs">학교 지도가 아직 등록되지 않았습니다.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="pt-4 flex gap-2">
+                <button type="button" onClick={() => setViewMode('list')} className="w-1/3 bg-slate-100 py-2.5 rounded-lg text-sm">취소</button>
+                <button type="submit" className="w-2/3 bg-slate-900 text-white py-2.5 rounded-lg text-sm shadow-sm">실시간 등록 신청</button>
+              </div>
+            </form>
+          </div>
+        )}
       </main>
 
-      {/* 관리자 로그인 모달 */}
+      {/* 🛠️ 모달 텍스트 및 로직 변경 (수령자 학번 입력받기) */}
+      {resolveModalOpen && selectedItem && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-5 max-w-sm w-full">
+            <h3 className="text-sm font-bold text-slate-900">📢 분실물 수령 완료 처리</h3>
+            <p className="text-[11px] text-slate-400 mt-1">물품을 수령해가는 학생의 학번을 입력해 주세요.</p>
+            <form onSubmit={handleResolveStatus} className="space-y-3 mt-3">
+              <input type="text" placeholder="수령자 학번 입력 (예: 10305)" value={authStudentId} onChange={(e) => setAuthStudentId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required />
+              <div className="flex gap-2 justify-end text-xs">
+                <button type="button" onClick={() => setResolveModalOpen(false)} className="px-3 py-2 border rounded-lg">취소</button>
+                <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded-lg">확인</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showAdminModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-xl w-full max-w-sm">
-            <h3 className="text-sm font-bold mb-3">관리자 패스워드 입력</h3>
-            <input type="password" placeholder="비밀번호" onChange={e => setPasswordInput(e.target.value)} className="w-full p-2 border rounded-lg mb-4 text-sm" />
-            <div className="flex gap-2">
-              <button onClick={() => setShowAdminModal(false)} className="flex-1 py-2 border rounded-lg text-sm">취소</button>
-              <button onClick={() => { if(passwordInput === '7272') { setIsAdmin(true); setShowAdminModal(false); } else { alert('비밀번호가 틀렸습니다.'); } }} className="flex-1 py-2 bg-black text-white rounded-lg text-sm">인증</button>
-            </div>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-5 max-w-sm w-full">
+            <h3 className="text-sm font-bold text-slate-900">🔒 관리자 모드 인증</h3>
+            <form onSubmit={handleAdminLogin} className="space-y-3 mt-3">
+              <input type="password" placeholder="비밀번호 입력" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" required />
+              <div className="flex gap-2 justify-end text-xs">
+                <button type="button" onClick={() => setShowAdminModal(false)} className="px-3 py-2 border rounded-lg">취소</button>
+                <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded-lg">인증</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
