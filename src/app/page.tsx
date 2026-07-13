@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase 클라이언트 초기화 (환경 변수 사용)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// 6번째 줄 부근의 기존 코드를 이 3줄로 완전히 덮어씌우세요!
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
